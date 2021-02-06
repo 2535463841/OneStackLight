@@ -1,0 +1,4 @@
+oslo_config
+pika
+tqdm
+PyYAML==3.12

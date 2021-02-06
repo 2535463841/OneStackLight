@@ -1,0 +1,346 @@
+hosts:
+  - &host1 controller
+
+keystone_authtoken: &keystone_authtoken
+    auth_uri: &auth_uri http://controller:5000
+    auth_url: http://controller:5000
+    auth_type: password
+    project_domain_name: default
+    user_domain_name: default
+
+mariadb:
+  hosts:
+    - &mariadb_host controller
+  packages: [mariadb, mariadb-server, python2-PyMySQL]
+  service_names: [mariadb]
+  config_files:
+    - file: /etc/my.cnf.d/openstack.cnf
+      configs:
+        mysqld:
+          default-storage-engine: innodb
+          innodb_file_per_table: ''
+          max_connections: 4096
+          collation-server: utf8_general_ci
+          character-set-server: utf8
+          bind-address: !get_host_ip
+  clean_up_dir: [/var/lib/mysql]
+
+keystone:
+  hosts:
+    - &keystone_host controller
+  packages:
+    - openstack-keystone
+    - httpd
+    - mod_wsgi
+  service_names: [httpd]
+  type: identity
+  description: OpenStack Identity
+  db_sync_cmd: ['keystone-manage', 'db_sync']
+  #  init_admin_token: &admin_token !openssl_rand_hex10
+  init_admin_token: &admin_token 0a86dac93313cdac3077
+
+  auth:
+    - project_name: admin
+      username: admin
+      password: admin1234
+      role: admin
+      domain: default
+      description: Admin Project
+    - project_name: service
+      domain: default
+      description: "Service Project"
+
+  database:
+      dbname: &keystone_db_name keystone
+      username: &keystone_db_user keystone
+      password: &keystone_db_password keystone1234
+  endpoints:
+      keystone:
+          internal: !string_format [ 'http://%s:5000', *keystone_host ]
+          public:   !string_format [ 'http://%s:5000', *keystone_host ]
+          admin:    !string_format [ 'http://%s:35357', *keystone_host ]
+  conf_files:
+    - file: /etc/keystone/keystone.conf
+      configs:
+        DEFAULT:
+          admin_token: *admin_token
+        token:
+          provider: fernet
+        database:
+          connection: !string_format [ mysql://%s:%s@%s/%s, *keystone_db_user, *keystone_db_password, *mariadb_host, *keystone_db_name ]
+
+  clean_up_dir: [/var/log/keystone]
+
+# amqp config
+amqp:
+  hosts:
+    - &amqp_host controller
+  packages: [rabbitmq-server]
+  service_names: [rabbitmq-server]
+
+  # Login http://<AMQP_HOST>:15672 using guest:guest
+  enable_management: true
+  init_user:
+    name: &amqp_openstack_user openstack
+    password: &amqp_openstack_pass openstack1234
+
+# memcached
+memcached:
+  hosts:
+    - &memcached_host controller
+
+  packages:  [memcached, python-memcached]
+  service_names: [memcached]
+
+# glance config
+glance:
+  hosts:
+    - &glance_host controller
+  type: image
+  description: "OpenStack Image Storage"
+  packages: [openstack-glance]
+  service_names: ['openstack-glance-api', 'openstack-glance-registry']
+  db_sync_cmd: ['glance-manage', 'db', 'sync']
+  auth: &glance_auth_user
+      project_name: service
+      username: glance
+      password: glance1234
+
+  endpoints:
+    glance:
+      internal: &glance_interval_api !string_format ['http://%s:9292', *glance_host]
+      public: !string_format ['http://%s:9292', *glance_host]
+      admin: !string_format ['http://%s:9292', *glance_host]
+
+  database:
+    dbname: &glance_db_name glance
+    username: &glance_db_user glance
+    password: &glance_db_password glance1234
+
+  conf_files:
+    - file: /etc/glance/glance-api.conf
+      configs:
+        paste_deploy:
+          flavor: keystone
+        keystone_authtoken:
+          <<: *keystone_authtoken
+          <<: *glance_auth_user
+        database:
+          connection: !string_format [ mysql://%s:%s@%s/%s, *glance_db_user, *glance_db_password, *keystone_host, *glance_db_name ]
+    - file: /etc/glance/glance-registry.conf
+      configs:
+        paste_deploy:
+          flavor: keystone
+        keystone_authtoken:
+          <<: *keystone_authtoken
+          <<: *glance_auth_user
+  clean_up_dir: ['/var/log/glance', '/etc/glance']
+
+cinder:
+  hosts:
+    - &cinder_host controller
+  type: volumn
+
+  packages: ['openstack-cinder']
+  service_names: ['openstack-cinder-api', 'openstack-cinder-scheduler']
+  description: "OpenStack Block Storage"
+  db_sync_cmd: ['cinder-manage', 'db', 'sync']
+
+  auth: &cinder_keystone_auth
+    project_name: service
+    username: cinder
+    password: cinder1234
+
+  database:
+    dbname: &cinder_db_name cinder
+    username: &cinder_db_user cinder
+    password: &cinder_db_password cinder1234
+
+  endpoints:
+    cinderv2:
+      internal: !string_format ['http://%s:8776/v2/%%(project_id)s', *cinder_host]
+      public:   !string_format ['http://%s:8776/v2/%%(project_id)s', *cinder_host]
+      admin:    !string_format ['http://%s:8776/v2/%%(project_id)s', *cinder_host]
+    cinderv3:
+      internal: !string_format ['http://%s:8776/v3/%%(project_id)s', *cinder_host]
+      public:   !string_format ['http://%s:8776/v3/%%(project_id)s', *cinder_host]
+      admin:    !string_format ['http://%s:8776/v3/%%(project_id)s', *cinder_host]
+
+  conf_files:
+    - file: /etc/cinder/cinder.conf
+      configs:
+        paste_deploy:
+          flavor: keystone
+        keystone_authtoken:
+          www_authenticate_uri: *auth_uri
+          memcached_servers: !string_format ['%s:11211', *memcached_host]
+          <<: *keystone_authtoken
+          <<: *cinder_keystone_auth
+        database:
+          connection: !string_format [mysql://%s:%s@%s/%s, *cinder_db_user, *cinder_db_password, *keystone_host, *cinder_db_name]
+        DEFAULT:
+          auth_strategy: keystone
+          my_ip: !get_host_ip
+          transport_url: !string_format [rabbit://%s:%s@%s, *amqp_openstack_user, *amqp_openstack_pass, *amqp_host]
+        oslo_concurrency:
+          lock_path: /var/lib/cinder/tmp
+  clean_up_dir: ['/var/log/cinder', '/etc/cinder']
+
+# nova config
+nova:
+  hosts:
+    - &nova_host controller
+  type: compute
+  description: OpenStack Compute
+
+  packages:
+      - openstack-nova-api
+      - openstack-nova-conductor
+      - openstack-nova-console
+      - openstack-nova-novncproxy
+      - openstack-nova-scheduler
+  service_names: [openstack-nova-api, openstack-nova-consoleauth, openstack-nova-scheduler]
+  db_sync_cmd: ['nova-manage', 'db', 'sync', ';', 'nova-manage', 'api_db', 'sync']
+
+  auth: &nova_keystone_auth
+    project_name: service
+    username: nova
+    password: nova1234
+
+  database:
+    - dbname:   &nova_db_name nova
+      username: &nova_db_user nova
+      password: &nova_db_password nova1234
+    - dbname:   nova_api
+      username: nova
+      password: nova1234
+
+  endpoints:
+    nova:
+      internal: !string_format ['http://%s:8774/v2.1/%%(tenant_id)s', *nova_host]
+      public:   !string_format ['http://%s:8774/v2.1/%%(tenant_id)s', *nova_host]
+      admin:    !string_format ['http://%s:8774/v2.1/%%(tenant_id)s', *nova_host]
+
+  conf_files:
+    - file: /etc/nova/nova.conf
+      configs:
+        DEFAULT:
+            enabled_apis: osapi_compute,metadata
+            ransport_url: !string_format [rabbit://%s:%s@%s, *amqp_openstack_user, *amqp_openstack_pass, *amqp_host]
+            auth_strategy: keystone
+            my_ip: !get_host_ip
+            use_neutron: True
+            firewall_driver: nova.virt.firewall.NoopFirewallDriver
+        keystone_authtoken:
+            www_authenticate_uri: *auth_uri
+            memcached_servers: !string_format ['%s:11211', *memcached_host]
+            <<: *keystone_authtoken
+            <<: *nova_keystone_auth
+
+        database:
+            connection: !string_format [mysql://%s:%s@%s/%s, *nova_db_user, *nova_db_password, *mariadb_host, *nova_db_name]
+
+        oslo_concurrency:
+            lock_path: /var/lib/nova/tmp
+
+        api_database:
+            connection: !string_format [mysql://%s:%s@%s/%s, *nova_db_user, *nova_db_password, *keystone_host, *nova_db_name]
+
+        oslo_messaging_rabbit:
+            rabbit_host: *amqp_host
+            rabbit_userid: *amqp_openstack_user
+            rabbit_password: *amqp_openstack_pass
+        vnc:
+          vncserver_listen: !get_host_ip
+          vncserver_proxyclient_address: $my_ip
+        glance:
+          api_servers: *glance_interval_api
+  clean_up_dir: ['/var/log/cinder', '/etc/cinder']
+
+neutron:
+  hosts:
+    - &neutron_host controller
+  type: network
+  description: OpenStack Networking
+
+  packages:
+    - openstack-neutron
+    - openstack-neutron-ml2
+    - openstack-neutron-openvswitch
+    - ebtables
+
+  service_names: [neutron-server, neutron-dhcp-agent, neutron-openvswitch-agent]
+  db_sync_cmd: [neutron-db-manage, --config-file, /etc/neutron/neutron.conf, --config-file, /etc/neutron/plugins/ml2/ml2_conf.ini, upgrade, head]
+
+  auth: &neutron_keystone_auth
+    project_name: service
+    username: neutron
+    password: neutron1234
+
+  database:
+    - dbname:   &neutron_db_name neutron
+      username: &neutron_db_user neutron
+      password: &neutron_db_password neutron1234
+
+  endpoints:
+    neutron:
+      internal: !string_format ['http://%s:9696', *neutron_host]
+      public:   !string_format ['http://%s:9696', *neutron_host]
+      admin:    !string_format ['http://%s:9696', *neutron_host]
+
+  conf_files:
+    - file: /etc/neutron/neutron.conf
+      configs:
+        DEFAULT:
+          core_plugin: 'ml2'
+          service_plugins: ' '
+          transport_url: !string_format [rabbit://%s:%s@%s, *amqp_openstack_user, *amqp_openstack_pass, *amqp_host]
+          auth_strategy: 'keystone'
+          notify_nova_on_port_status_changes: True
+          notify_nova_on_port_data_changes: True
+
+        keystone_authtoken:
+          www_authenticate_uri: *auth_uri
+          memcached_servers: !string_format ['%s:11211', *memcached_host]
+          <<: *keystone_authtoken
+          <<: *neutron_keystone_auth
+
+        database:
+          connection: !string_format [mysql://%s:%s@%s/%s, *neutron_db_user, *neutron_db_password, *mariadb_host, *neutron_db_name]
+
+        nova:
+          <<: *keystone_authtoken
+          <<: *nova_keystone_auth
+
+        oslo_concurrency:
+            lock_path: /var/lib/neutron/tmp
+    - file: /etc/neutron/plugins/ml2/ml2_conf.ini
+      configs:
+        ml2:
+          type_drivers: flat, vxlan
+          tenant_network_types: vxlan
+          mechanism_drivers: openvswitch,l2population
+          extension_drivers: port_security
+        ml2_type_vxlan:
+          vni_ranges: 1001:2000
+        securitygroup:
+          enable_ipset: true
+    - file: /etc/neutron/dhcp_agent.ini
+      configs:
+        DEFAULT:
+          interface_driver: neutron.agent.linux.interface.OVSInterfaceDriver
+          dhcp_driver: neutron.agent.linux.dhcp.Dnsmasq
+          enable_isolated_metadata: True
+    - file: /etc/neutron/plugins/ml2/openvswitch_agent.ini
+      configs:
+        agent:
+          tunnel_types: vxlan
+          l2_population: True
+        ovs:
+          bridge_mappings: ''
+          tunnel_bridge: br-tun
+          local_ip: !get_host_ip
+        securitygroup:
+          firewall_driver: neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+          enable_security_group: true
+  clean_up_dir: ['/var/log/neutron', '/etc/neutron']
