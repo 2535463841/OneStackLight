@@ -336,10 +336,13 @@ neutron:
         agent:
           tunnel_types: vxlan
           l2_population: True
+          root_helper_daemon: ''
+          root_helper: ''
         ovs:
           bridge_mappings: ''
           tunnel_bridge: br-tun
           local_ip: !get_host_ip
+          ovsdb_interface: ovsctl
         securitygroup:
           firewall_driver: neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
           enable_security_group: true
