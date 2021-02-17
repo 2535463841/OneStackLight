@@ -20,12 +20,10 @@ LOG = log.LOG
 @manager.register_service('keystone')
 class KeystoneCentosInstaller(baseinstaller.OpenstackComponentInstaller):
 
-    def __init__(self):
-        super().__init__()
-        with open(os.path.join('config', 'services.yml')) as f:
-            self.conf = yaml.load(f, Loader=yaml.Loader).get('keystone')
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.admin_password = CONF.keystone.keystoneadmin_db_password
-        self.conf_path = '/usr/share/keystone/wsgi-keystone.conf'
+        self.wsgi_conf_path = '/usr/share/keystone/wsgi-keystone.conf'
         utils.run_cmd(['unset', 'OS_AUTH_URL', 'OS_USER_DOMAIN_NAME',
                        'OS_PROJECT_NAME', 'OS_USERNAME',
                        'OS_PROJECT_DOMAIN_NAME'])
@@ -38,7 +36,7 @@ class KeystoneCentosInstaller(baseinstaller.OpenstackComponentInstaller):
         LOG.debug('config wsgi')
         link_path = os.path.join('/etc/httpd/conf.d/', 'wsgi-keystone.conf')
         if not os.path.exists(link_path):
-            utils.run_cmd(['ln', '-s', self.conf_path, '/etc/httpd/conf.d/'])
+            utils.run_cmd(['ln', '-s', self.wsgi_conf_path, '/etc/httpd/conf.d/'])
 
     def verify(self):
         utils.run_cmd(['unset', 'OS_TOKEN', 'OS_URL'])

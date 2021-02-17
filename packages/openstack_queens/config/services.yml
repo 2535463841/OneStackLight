@@ -1,6 +1,15 @@
 hosts:
   - &host1 controller
 
+admin_auth:
+  project_name: admin
+  username: admin
+  password: admin1234
+  role: admin
+  description: Admin Project
+  project_domain_name: default
+  user_domain_name: default
+
 keystone_authtoken: &keystone_authtoken
     auth_uri: &auth_uri http://controller:5000
     auth_url: http://controller:5000
@@ -199,19 +208,20 @@ nova:
       - openstack-nova-console
       - openstack-nova-novncproxy
       - openstack-nova-scheduler
-  service_names: [openstack-nova-api, openstack-nova-consoleauth, openstack-nova-scheduler]
-  db_sync_cmd: ['nova-manage', 'db', 'sync', ';', 'nova-manage', 'api_db', 'sync']
+  service_names: [openstack-nova-conductor, openstack-nova-api, openstack-nova-consoleauth, openstack-nova-scheduler]
+  db_sync_cmd: ['nova-manage', 'api_db', 'sync', ';', 'nova-manage', 'db', 'sync']
 
   auth: &nova_keystone_auth
     project_name: service
     username: nova
+    role: admin
     password: nova1234
 
   database:
     - dbname:   &nova_db_name nova
       username: &nova_db_user nova
       password: &nova_db_password nova1234
-    - dbname:   nova_api
+    - dbname: &nova_api_db_name  nova_api
       username: nova
       password: nova1234
 
@@ -236,26 +246,23 @@ nova:
             memcached_servers: !string_format ['%s:11211', *memcached_host]
             <<: *keystone_authtoken
             <<: *nova_keystone_auth
-
         database:
             connection: !string_format [mysql://%s:%s@%s/%s, *nova_db_user, *nova_db_password, *mariadb_host, *nova_db_name]
-
         oslo_concurrency:
             lock_path: /var/lib/nova/tmp
-
         api_database:
-            connection: !string_format [mysql://%s:%s@%s/%s, *nova_db_user, *nova_db_password, *keystone_host, *nova_db_name]
-
+            connection: !string_format [mysql://%s:%s@%s/%s, *nova_db_user, *nova_db_password, *keystone_host, *nova_api_db_name]
         oslo_messaging_rabbit:
             rabbit_host: *amqp_host
             rabbit_userid: *amqp_openstack_user
             rabbit_password: *amqp_openstack_pass
         vnc:
+          enabled: True
           vncserver_listen: !get_host_ip
           vncserver_proxyclient_address: $my_ip
         glance:
           api_servers: *glance_interval_api
-  clean_up_dir: ['/var/log/cinder', '/etc/cinder']
+  clean_up_dir: ['/var/log/nova', '/etc/nova']
 
 neutron:
   hosts:
@@ -304,7 +311,6 @@ neutron:
           memcached_servers: !string_format ['%s:11211', *memcached_host]
           <<: *keystone_authtoken
           <<: *neutron_keystone_auth
-
         database:
           connection: !string_format [mysql://%s:%s@%s/%s, *neutron_db_user, *neutron_db_password, *mariadb_host, *neutron_db_name]
 
@@ -347,3 +353,48 @@ neutron:
           firewall_driver: neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
           enable_security_group: true
   clean_up_dir: ['/var/log/neutron', '/etc/neutron']
+
+nova-compute:
+  hosts:
+    - &nova_compute_host controller
+  type: compute
+  description: OpenStack compute
+  packages:
+    - openstack-nova-compute
+
+  service_names: [libvirtd, openstack-nova-compute]
+  db_sync_cmd: []
+  endpoints: {}
+  conf_files:
+    - file: /etc/nova/nova.conf
+      configs:
+        DEFAULT:
+            enabled_apis: osapi_compute,metadata
+            ransport_url: !string_format [rabbit://%s:%s@%s, *amqp_openstack_user, *amqp_openstack_pass, *amqp_host]
+            auth_strategy: keystone
+            my_ip: !get_host_ip
+            use_neutron: True
+            firewall_driver: nova.virt.firewall.NoopFirewallDriver
+        keystone_authtoken:
+            www_authenticate_uri: *auth_uri
+            memcached_servers: !string_format ['%s:11211', *memcached_host]
+            <<: *keystone_authtoken
+            <<: *nova_keystone_auth
+        database:
+            connection: !string_format [mysql://%s:%s@%s/%s, *nova_db_user, *nova_db_password, *mariadb_host, *nova_db_name]
+        oslo_concurrency:
+            lock_path: /var/lib/nova/tmp
+        api_database:
+            connection: !string_format [mysql://%s:%s@%s/%s, *nova_db_user, *nova_db_password, *keystone_host, *nova_api_db_name]
+        oslo_messaging_rabbit:
+            rabbit_host: *amqp_host
+            rabbit_userid: *amqp_openstack_user
+            rabbit_password: *amqp_openstack_pass
+        vnc:
+          enabled: True
+          vncserver_listen: !get_host_ip
+          vncserver_proxyclient_address: $my_ip
+          novncproxy_base_url: !string_format ['http://%s:6080/vnc_auto.html', *nova_host]
+        glance:
+          api_servers: *glance_interval_api
+  clean_up_dir: ['/var/log/nova', '/etc/nova']

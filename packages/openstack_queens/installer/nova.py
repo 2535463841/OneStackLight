@@ -18,9 +18,9 @@ LOG = log.LOG
 
 @manager.register_service('nova')
 class NovaCentosInstaller(baseinstaller.OpenstackComponentInstaller):
+    SERVICE_NAME = 'nova'
 
-    def __init__(self):
-        super().__init__()
 
-        with open(os.path.join('config', 'services.yml')) as f:
-            self.conf = yaml.load(f, Loader=yaml.Loader).get('nova')
+@manager.register_service('nova-compute')
+class NovaCentosInstaller(baseinstaller.OpenstackComponentInstaller):
+    SERVICE_NAME = 'nova-compute'

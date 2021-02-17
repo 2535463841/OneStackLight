@@ -18,9 +18,4 @@ LOG = log.LOG
 
 @manager.register_service('cinder')
 class CinderCentosInstaller(baseinstaller.OpenstackComponentInstaller):
-
-    def __init__(self):
-        super().__init__()
-
-        with open(os.path.join('config', 'services.yml')) as f:
-            self.conf = yaml.load(f, Loader=yaml.Loader).get('cinder')
+    SERVICE_NAME = 'cinder'

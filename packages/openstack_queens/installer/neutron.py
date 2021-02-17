@@ -19,12 +19,6 @@ LOG = log.LOG
 @manager.register_service('neutron')
 class NeutronCentosInstaller(baseinstaller.OpenstackComponentInstaller):
 
-    def __init__(self):
-        super().__init__()
-
-        with open(os.path.join('config', 'services.yml')) as f:
-            self.conf = yaml.load(f, Loader=yaml.Loader).get('neutron')
-
     def update_config_files(self):
         super(NeutronCentosInstaller, self).update_config_files()
         utils.run_cmd(

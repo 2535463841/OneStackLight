@@ -18,11 +18,6 @@ LOG = log.LOG
 @manager.register_service('amqp')
 class AMQPCentosInstaller(baseinstaller.BaseCentosInstaller):
 
-    def __init__(self):
-        super().__init__()
-        with open(os.path.join('config', 'services.yml')) as f:
-            self.conf = yaml.load(f, Loader=yaml.Loader).get('amqp')
-
     @utils.log_steps
     def clean_up(self):
         """Clean Up Resources"""

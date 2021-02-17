@@ -10,15 +10,9 @@ from common import baseinstaller
 @manager.register_service('mariadb')
 class MemcachedCentosInstaller(baseinstaller.BaseCentosInstaller):
 
-    def __init__(self):
-        super().__init__()
-        with open(os.path.join('config', 'services.yml')) as f:
-            self.conf = yaml.load(f, Loader=yaml.Loader).get('mariadb')
-
     def update_config_files(self):
         config_files = self.conf.get('config_files')
         for config_file in config_files:
-
             parser = configparser.ConfigParser()
             for section, options in config_file.get('configs').items():
                 parser.add_section(section)
