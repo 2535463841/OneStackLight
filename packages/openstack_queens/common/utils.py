@@ -1,3 +1,4 @@
+import functools
 import os
 import collections
 import subprocess
@@ -9,6 +10,7 @@ LOG = log.LOG
 
 def log_steps(func):
 
+    @functools.wraps(func)
     def foo(*args, **kwargs):
         LOG.debug("=== " + func.__doc__.split('\n')[0])
         return func(*args, **kwargs)

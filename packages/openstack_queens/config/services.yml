@@ -1,6 +1,9 @@
 hosts:
   - &host1 controller
 
+yum_repo: [http://mirrors.aliyun.com/repo/Centos-7.repo]
+  
+
 admin_auth:
   project_name: admin
   username: admin
@@ -45,7 +48,8 @@ keystone:
   type: identity
   description: OpenStack Identity
   db_sync_cmd: ['keystone-manage', 'db_sync']
-  #  init_admin_token: &admin_token !openssl_rand_hex10
+  # init_admin_token: &admin_token !openssl_rand_hex10
+  # Execute: `openssl rand -hex 10` get the output
   init_admin_token: &admin_token 0a86dac93313cdac3077
 
   auth:
@@ -208,19 +212,33 @@ nova:
       - openstack-nova-console
       - openstack-nova-novncproxy
       - openstack-nova-scheduler
+      - openstack-nova-placement-api
   service_names: [openstack-nova-conductor, openstack-nova-api, openstack-nova-consoleauth, openstack-nova-scheduler]
-  db_sync_cmd: ['nova-manage', 'api_db', 'sync', ';', 'nova-manage', 'db', 'sync']
+  db_sync_cmd: ['nova-manage api_db sync', '&&', 'nova-manage db sync']
 
-  auth: &nova_keystone_auth
-    project_name: service
-    username: nova
-    role: admin
-    password: nova1234
-
+  auth: 
+    - &nova_keystone_auth
+      project_name: service
+      username: nova
+      role: admin
+      password: nova1234
+    - &placement_keystone_auth
+      project_name: service
+      username: placement
+      password: placement1234
+      role: admin
+      domain: default
+  
   database:
     - dbname:   &nova_db_name nova
       username: &nova_db_user nova
       password: &nova_db_password nova1234
+      grant_sql: 
+        - !string_format ["GRANT ALL ON %s.* TO '%s'@'%%' identified by '%s'",            *nova_db_name, *nova_db_user, *nova_db_password]
+        - !string_format ["GRANT ALL ON %s.* TO '%s'@'localhost' identified by '%s'",     *nova_db_name, *nova_db_user, *nova_db_password]
+        - !string_format ["GRANT ALL PRIVILEGES ON %s.* TO '%s'@'%%' identified by '%s'", *nova_db_name, *nova_db_user, *nova_db_password]
+        - !string_format ["GRANT ALL PRIVILEGES ON %s.* TO '%s'@'%s' identified by '%s'", *nova_db_name, *nova_db_user, *mariadb_host, *nova_db_password]
+
     - dbname: &nova_api_db_name  nova_api
       username: nova
       password: nova1234
@@ -257,12 +275,21 @@ nova:
             rabbit_userid: *amqp_openstack_user
             rabbit_password: *amqp_openstack_pass
         vnc:
-          enabled: True
-          vncserver_listen: !get_host_ip
-          vncserver_proxyclient_address: $my_ip
+            enabled: True
+            vncserver_listen: !get_host_ip
+            vncserver_proxyclient_address: $my_ip
         glance:
-          api_servers: *glance_interval_api
-  clean_up_dir: ['/var/log/nova', '/etc/nova']
+            api_servers: *glance_interval_api
+        placement: &placement_config
+            region_name: RegionOne
+            project_domain_name: default
+            project_name: service
+            auth_type: password
+            user_domain_name: default
+            auth_url: http://controller:5000/v3
+            username: placement
+            password: placement123
+  clean_up_dir: []
 
 neutron:
   hosts:
@@ -280,9 +307,9 @@ neutron:
   db_sync_cmd: [neutron-db-manage, --config-file, /etc/neutron/neutron.conf, --config-file, /etc/neutron/plugins/ml2/ml2_conf.ini, upgrade, head]
 
   auth: &neutron_keystone_auth
-    project_name: service
-    username: neutron
-    password: neutron1234
+      project_name: service
+      username: neutron
+      password: neutron1234
 
   database:
     - dbname:   &neutron_db_name neutron
@@ -342,17 +369,15 @@ neutron:
         agent:
           tunnel_types: vxlan
           l2_population: True
-          root_helper_daemon: ''
-          root_helper: ''
         ovs:
           bridge_mappings: ''
           tunnel_bridge: br-tun
           local_ip: !get_host_ip
-          ovsdb_interface: ovsctl
+          ovsdb_interface: vsctl
         securitygroup:
           firewall_driver: neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
           enable_security_group: true
-  clean_up_dir: ['/var/log/neutron', '/etc/neutron']
+  clean_up_dir: []
 
 nova-compute:
   hosts:
@@ -391,10 +416,14 @@ nova-compute:
             rabbit_userid: *amqp_openstack_user
             rabbit_password: *amqp_openstack_pass
         vnc:
-          enabled: True
-          vncserver_listen: !get_host_ip
-          vncserver_proxyclient_address: $my_ip
-          novncproxy_base_url: !string_format ['http://%s:6080/vnc_auto.html', *nova_host]
+            enabled: True
+            vncserver_listen: !get_host_ip
+            vncserver_proxyclient_address: $my_ip
+            novncproxy_base_url: !string_format ['http://%s:6080/vnc_auto.html', *nova_host]
         glance:
-          api_servers: *glance_interval_api
-  clean_up_dir: ['/var/log/nova', '/etc/nova']
+            api_servers: *glance_interval_api
+        placement:
+            <<: *placement_config
+        libvirt:
+          virt_type: qemu
+  clean_up_dir: []
