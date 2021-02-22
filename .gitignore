@@ -1,1 +1,2 @@
 .vscode/*
+/packages/openstack_queens/common/lib/__pycache__/*.pyc
