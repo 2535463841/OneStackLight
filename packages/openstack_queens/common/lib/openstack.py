@@ -1,15 +1,42 @@
-from keystoneauth1.identity import v3
+import os
+
 from keystoneauth1 import session
+from keystoneauth1.identity import v3
 from keystoneclient.v3 import client
-from keystoneclient.v3.projects import Project
+
+from neutronclient.v2_0 import client as neutrnoclient
+from novaclient import client as novaclient
 
 
-class KeystoneV3:
 
-    def __init__(self, *args, **kwargs) -> None:
-        auth = v3.Password(*args, **kwargs)
-        sess = session.Session(auth=auth)
-        self.keystone = client.Client(session=sess)
+class OpenstackClient:
+    """openstack clients
+
+    >>> openstack = OpenstackClient.create_instance()
+    >>> users = openstack.keystone.users.list()
+    >>> len(users) > 0
+    True
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.auth = v3.Password(*args, **kwargs)
+        self.session = session.Session(auth=self.auth)
+        self.keystone = client.Client(session=self.session)
+        self.neutron = neutrnoclient.Client(session=self.session)
+        self.nova = novaclient.Client('2.0', session=self.session)
+
+    @classmethod
+    def create_instance(cls, *kwargs):
+        auth_url = os.environ.get('OS_AUTH_URL')
+        auth_params = {
+            'username': os.environ.get('OS_USERNAME'),
+            'password': os.environ.get('OS_PASSWORD'),
+            'project_name': os.environ.get('OS_PROJECT_NAME'),
+            'user_domain_name': os.environ.get('OS_USER_DOMAIN_NAME'),
+            'project_domain_name': os.environ.get('OS_PROJECT_DOMAIN_NAME'),
+        }
+        auth_params.update(kwargs)
+        return cls(auth_url, **auth_params)
 
     def get_or_create_domain(self, name):
         domains = self.keystone.domains.list(name=name)
@@ -33,15 +60,12 @@ class KeystoneV3:
         domain = self.get_or_create_domain(domain_name)
         project = self.get_or_create_project(projec_name, domain_name)
         role_name = kwargs.pop('role_name', None)
-
         users = self.keystone.users.list(name=name, domain=domain)
         user = users[0] if users else self.keystone.users.create(
             name, domain=domain, project=project, **kwargs
         )
 
-        print('role_name=', role_name)
         if role_name:
             role = self.get_or_create_role(role_name)
-            print('role=', role)
             self.keystone.roles.grant(role, user=user, project=project)
         return user

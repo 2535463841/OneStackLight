@@ -2,7 +2,6 @@ hosts:
   - &host1 controller
 
 yum_repo: [http://mirrors.aliyun.com/repo/Centos-7.repo]
-  
 
 admin_auth:
   project_name: admin

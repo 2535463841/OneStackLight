@@ -1,17 +1,13 @@
 import unittest
 import time
 
-from keystoneauth1.identity import v3
-from keystoneauth1 import session
-from keystoneclient.v3 import client
-
-from common.lib import keystone
+from common.lib import openstack
 
 
 class TestKeystoneClient(unittest.TestCase):
 
     def setUp(self):
-        self.client = keystone.KeystoneV3(
+        self.openstack= openstack.OpenstackClient(
             auth_url="http://197.168.137.100:5000/v3",
             username="admin",
             password="admin1234",
@@ -26,17 +22,16 @@ class TestKeystoneClient(unittest.TestCase):
         user_name = 'user_{0}'.format(self.sufix)
         role_name = 'role_{0}'.format(self.sufix)
 
-        role = self.client.get_or_create_role(role_name)
-        # self.addCleanup(self.client.keystone.roles.delete, role.id)
+        role = self.openstack.get_or_create_role(role_name)
+        # self.addCleanup(self.openstack.keystone.roles.delete, role.id)
 
-        project = self.client.get_or_create_project(project_name, 'default')
-        # self.addCleanup(self.client.keystone.projects.delete, project.id)
+        project = self.openstack.get_or_create_project(project_name, 'default')
+        # self.addCleanup(self.openstack.keystone.projects.delete, project.id)
         self.assertEqual(project.name, project_name)
 
-        user = self.client.get_or_create_user(
+        user = self.openstack.get_or_create_user(
             user_name, 'default', project_name, 
             role_name=role_name)
 
-        # self.addCleanup(self.client.keystone.users.delete, user.id)
+        # self.addCleanup(self.openstack.keystone.users.delete, user.id)
         self.assertEqual(user.name, user_name)
-
